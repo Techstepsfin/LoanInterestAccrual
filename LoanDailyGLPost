@@ -1,0 +1,84 @@
+USE [UAT]
+GO
+/****** Object:  StoredProcedure [dbo].[IOFSIWTbsp_LoanDailyGLPost]    Script Date: 12/31/2021 4:43:58 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[LoanDailyGLPost] (@ValueDate AS DATE)
+
+
+
+AS
+BEGIN
+DECLARE @YearDays AS INT;
+DECLARE @RepaySum AS MONEY;
+--SET @ValueDate = '1-jan-2020';
+SET @YearDays = DATEDIFF(day, CAST(YEAR(@ValueDate) AS CHAR(4)) + '0101', CAST(YEAR(@ValueDate) + 1 AS CHAR(4)) + '0101');
+
+IF EXISTS (SELECT TOP 1 SysRef FROM [dbo].[Acct_GL] WHERE SysRef = CONCAT('IOFS-',@ValueDate) and EffectiveDate = @ValueDate)
+	BEGIN
+		Raiserror ('Accrued interest already posted for the date specified, please select another date',1,1)
+	END
+ELSE
+	BEGIN
+			INSERT INTO [dbo].[Acct_GL]
+					   ([EffectiveDate]
+					   ,[AccountID]
+					   ,[Sub]
+					   ,[LedgerType]
+					   ,[Amount]
+					   ,[Description]
+					   ,[TransType]
+					   ,[SysRef]
+					   ,[Ref01]
+					   ,[FiscalYear]
+					   ,[Month]
+					   ,[BatchNo]
+					   ,[UserID]
+					   ,[TxnDate]
+					   ,[BranchCode])
+
+			
+SELECT 
+				   @ValueDate,
+				   [LoanAID],
+				   [LoanSub],
+				   'NGN' 'Test', 
+				   (((LoanBal * IntRate * 1) / @YearDays)/ 100) * -1 AS NewDailyInt,
+				   'Daily Accrual for Loan: TransNo:' + ' ' + [TransNo] + ' ' + 'CustID:' + ' ' +  [CustAID] + ' ' + ' ' + 'IntAccrued:' + ' ' +  
+				   CAST((((LoanBal * IntRate * 1) / @YearDays)/ 100) AS varchar(50)) + ' ' + ' ' + 'IntRate:' + ' ' + CAST([Interest] AS varchar(50)),
+				   'LN_DARBNC',
+				   CONCAT('IOFS-',@ValueDate),
+				   TransNo,
+				   YEAR(@ValueDate),
+				   MONTH(@ValueDate),
+				   0,
+				   'SYSTEM',
+				   GETDATE(),
+				   '009'
+                       FROM [IOFSAccruedIntOnly] A JOIN Loans B ON A.LoanID = B.TransNo WHERE B.Liquidated <> 1 AND (@ValueDate BETWEEN B.CommencementDate AND B.MaturityDate) AND A.LoanBal <> 0.00 AND b.TransNo NOT IN (SELECT LoanID FROM [StopAccrual])
+
+UNION ALL
+
+SELECT 
+				   @ValueDate,
+				   [LoanIntAID],
+				   [LoanIntSub],
+				   'NGN' 'Test', 
+				   (((LoanBal * IntRate * 1) / @YearDays)/ 100) AS NewDailyInt,
+				   'Daily Accrual for Loan: TransNo:' + ' ' + [TransNo] + ' ' + 'CustID:' + ' ' +  [CustAID] + ' ' + ' ' + 'IntAccrued:' + ' ' +  
+				   CAST((((LoanBal * IntRate * 1) / @YearDays)/ 100) AS varchar(50)) + ' ' + ' ' + 'IntRate:' + ' ' + CAST([Interest] AS varchar(50)),
+				   'LN_DARBNC',
+				   CONCAT('IOFS-',@ValueDate),
+				   TransNo,
+				   YEAR(@ValueDate),
+				   MONTH(@ValueDate),
+				   0,
+				   'SYSTEM',
+				   GETDATE(),
+				   '009'
+                       FROM [IOFSAccruedIntOnly] A JOIN Loans B ON A.LoanID = B.TransNo WHERE B.Liquidated <> 1 AND (@ValueDate BETWEEN B.CommencementDate AND B.MaturityDate) AND A.LoanBal <> 0.00 AND b.TransNo NOT IN (SELECT LoanID FROM [StopAccrual])
+	END
+END
+
